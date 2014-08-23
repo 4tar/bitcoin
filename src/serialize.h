@@ -37,6 +37,34 @@ inline T& REF(const T& val)
     return const_cast<T&>(val);
 }
 
+/** Get begin pointer of vector (non-const version).
+ * @note These functions avoid the undefined case of indexing into an empty
+ * vector, as well as that of indexing after the end of the vector.
+ */
+template <class T, class TAl>
+inline T* begin_ptr(std::vector<T,TAl>& v)
+{
+    return v.empty() ? NULL : &v[0];
+}
+/** Get begin pointer of vector (const version) */
+template <class T, class TAl>
+inline const T* begin_ptr(const std::vector<T,TAl>& v)
+{
+    return v.empty() ? NULL : &v[0];
+}
+/** Get end pointer of vector (non-const version) */
+template <class T, class TAl>
+inline T* end_ptr(std::vector<T,TAl>& v)
+{
+    return v.empty() ? NULL : (&v[0] + v.size());
+}
+/** Get end pointer of vector (const version) */
+template <class T, class TAl>
+inline const T* end_ptr(const std::vector<T,TAl>& v)
+{
+    return v.empty() ? NULL : (&v[0] + v.size());
+}
+
 /////////////////////////////////////////////////////////////////
 //
 // Templates for serializing to anything that looks like a stream,
@@ -306,8 +334,9 @@ I ReadVarInt(Stream& is)
     }
 }
 
-#define FLATDATA(obj)  REF(CFlatData((char*)&(obj), (char*)&(obj) + sizeof(obj)))
-#define VARINT(obj)    REF(WrapVarInt(REF(obj)))
+#define FLATDATA(obj) REF(CFlatData((char*)&(obj), (char*)&(obj) + sizeof(obj)))
+#define VARINT(obj) REF(WrapVarInt(REF(obj)))
+#define LIMITED_STRING(obj,n) REF(LimitedString< n >(REF(obj)))
 
 /** Wrapper for serializing arrays and POD.
  */
@@ -318,6 +347,12 @@ protected:
     char* pend;
 public:
     CFlatData(void* pbeginIn, void* pendIn) : pbegin((char*)pbeginIn), pend((char*)pendIn) { }
+    template <class T, class TAl>
+    explicit CFlatData(std::vector<T,TAl> &v)
+    {
+        pbegin = (char*)begin_ptr(v);
+        pend = (char*)end_ptr(v);
+    }
     char* begin() { return pbegin; }
     const char* begin() const { return pbegin; }
     char* end() { return pend; }
@@ -361,6 +396,40 @@ public:
     template<typename Stream>
     void Unserialize(Stream& s, int, int) {
         n = ReadVarInt<Stream,I>(s);
+    }
+};
+
+template<size_t Limit>
+class LimitedString
+{
+protected:
+    std::string& string;
+public:
+    LimitedString(std::string& string) : string(string) {}
+
+    template<typename Stream>
+    void Unserialize(Stream& s, int, int=0)
+    {
+        size_t size = ReadCompactSize(s);
+        if (size > Limit) {
+            throw std::ios_base::failure("String length limit exceeded");
+        }
+        string.resize(size);
+        if (size != 0)
+            s.read((char*)&string[0], size);
+    }
+
+    template<typename Stream>
+    void Serialize(Stream& s, int, int=0) const
+    {
+        WriteCompactSize(s, string.size());
+        if (!string.empty())
+            s.write((char*)&string[0], string.size());
+    }
+
+    unsigned int GetSerializeSize(int, int=0) const
+    {
+        return GetSizeOfCompactSize(string.size()) + string.size();
     }
 };
 
@@ -795,6 +864,35 @@ struct ser_streamplaceholder
 
 
 typedef std::vector<char, zero_after_free_allocator<char> > CSerializeData;
+
+class CSizeComputer
+{
+protected:
+    size_t nSize;
+
+public:
+    int nType;
+    int nVersion;
+
+    CSizeComputer(int nTypeIn, int nVersionIn) : nSize(0), nType(nTypeIn), nVersion(nVersionIn) {}
+
+    CSizeComputer& write(const char *psz, int nSize)
+    {
+        this->nSize += nSize;
+        return *this;
+    }
+
+    template<typename T>
+    CSizeComputer& operator<<(const T& obj)
+    {
+        ::Serialize(*this, obj, nType, nVersion);
+        return (*this);
+    }
+
+    size_t size() const {
+        return nSize;
+    }
+};
 
 /** Double ended buffer combining vector and stream-like interfaces.
  *

@@ -6,7 +6,7 @@
 #define BITCOIN_NETBASE_H
 
 #if defined(HAVE_CONFIG_H)
-#include "bitcoin-config.h"
+#include "config/bitcoin-config.h"
 #endif
 
 #include "compat.h"
@@ -17,6 +17,7 @@
 #include <vector>
 
 extern int nConnectTimeout;
+extern bool fNameLookup;
 
 #ifdef WIN32
 // In MSVC, this is defined as a macro, undefine it to prevent a compile and link error
@@ -25,16 +26,13 @@ extern int nConnectTimeout;
 
 enum Network
 {
-    NET_UNROUTABLE,
+    NET_UNROUTABLE = 0,
     NET_IPV4,
     NET_IPV6,
     NET_TOR,
 
     NET_MAX,
 };
-
-extern int nConnectTimeout;
-extern bool fNameLookup;
 
 /** IP address (IPv6, or IPv4 using mapped IPv6 range (::FFFF:0:0/96)) */
 class CNetAddr
@@ -163,14 +161,15 @@ class CService : public CNetAddr
             )
 };
 
-typedef std::pair<CService, int> proxyType;
+typedef CService proxyType;
 
 enum Network ParseNetwork(std::string net);
+std::string GetNetworkName(enum Network net);
 void SplitHostPort(std::string in, int &portOut, std::string &hostOut);
-bool SetProxy(enum Network net, CService addrProxy, int nSocksVersion = 5);
+bool SetProxy(enum Network net, CService addrProxy);
 bool GetProxy(enum Network net, proxyType &proxyInfoOut);
 bool IsProxy(const CNetAddr &addr);
-bool SetNameProxy(CService addrProxy, int nSocksVersion = 5);
+bool SetNameProxy(CService addrProxy);
 bool HaveNameProxy();
 bool LookupHost(const char *pszName, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions = 0, bool fAllowLookup = true);
 bool Lookup(const char *pszName, CService& addr, int portDefault = 0, bool fAllowLookup = true);
@@ -180,5 +179,9 @@ bool ConnectSocket(const CService &addr, SOCKET& hSocketRet, int nTimeout = nCon
 bool ConnectSocketByName(CService &addr, SOCKET& hSocketRet, const char *pszDest, int portDefault = 0, int nTimeout = nConnectTimeout);
 /** Return readable error string for a network error code */
 std::string NetworkErrorString(int err);
+/** Close socket and set hSocket to INVALID_SOCKET */
+bool CloseSocket(SOCKET& hSocket);
+/** Disable or enable blocking-mode for a socket */
+bool SetSocketNonBlocking(SOCKET& hSocket, bool fNonBlocking);
 
 #endif
